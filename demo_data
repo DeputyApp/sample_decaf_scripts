@@ -1,0 +1,122 @@
+# A DeCaf/DeXML script that helps with demoing Deputy. NOT TO BE USED in real world!
+# Showcases use of API inside DeXML
+# Put three employees late as of right now! Make sure greame isn't working
+# Make all timesheets of yesterday unapproved. Create if needed
+
+
+arrMySetup = deputy_rest({url:"my/setup"})
+arrMyColleauge = deputy_rest({url:"my/colleague"})
+arrMyTime = deputy_rest({url:"time"})
+strTZ = arrMyTime.timezone
+strPrintOutput = "<pre>"
+strCRLF = "#{`&#13;&#10;`}"
+
+
+
+strTodayYMD = dateprint({format:'Y-m-d' , timezone:strTZ })
+strYesterdayYMD = dateadd({input:strTodayYMD , day: -1 })  
+strYesterdayYMD = dateprint({format:'Y-m-d' , input: strYesterdayYMD , timezone: strTZ})
+str3DaysAgoYMD = dateadd({input:strTodayYMD , day: -3 })  
+str3DaysAgoYMD = dateprint({format:'Y-m-d' , input: str3DaysAgoYMD , timezone: strTZ})
+intNowTs = unixtime({})
+strTodayYMD = strTodayYMD & " 00:00:00"
+
+
+log({message: "Todays date is #{strTodayYMD}"})
+retText = ""
+
+
+# Finish whoever is running and their shift
+`<db_fetch system="Timesheet" assign="objTimesheetArray">
+  <db_condition>
+    <db_compare column="IsInProgress" function="eq">1</db_compare>
+  </db_condition>
+  <db_join objname="EmployeeObject"/>
+</db_fetch>`
+
+
+
+# loop the timesheet to auto end 
+for objTimesheet in objTimesheetArray
+  intTimesheetId = objTimesheet.Id
+  intMealbreakMinute = 0    
+  strUrlEnd = "supervise/timesheet/end"
+  objPostEnd = {intTimesheetId: intTimesheetId, intMealbreakMinute: "0"}
+  res = deputy_rest({url:strUrlEnd , method:"POST" , post: objPostEnd})
+  log({message : "Finished timesheet" , obj: res})
+  strPrintOutput = strPrintOutput & strCRLF & "Finished timesheet for #{objTimesheet.EmployeeObject.DisplayName}"
+
+  
+intOpUnit = arrMySetup.Department[0].Id
+
+  
+ 
+for objEmp in arrMyColleauge
+  # fetch the Published rosters belongs to today, delete existing rosters for above employees
+  `<db_fetch system="Roster" assign="objExistingRosterArray">
+    <db_condition>
+      <db_compare column="Date" function="eq"><atom var="strTodayYMD" /></db_compare>
+      <db_compare column="Employee" function="eq"><atom var="objEmp" index="EmpId" /></db_compare>    
+    </db_condition>
+    <db_join objname="EmployeeObject"/>
+  </db_fetch>`
+  log({message: "found rosters " , obj: objExistingRosterArray})
+  for objRoster in objExistingRosterArray
+    strUrlStart = "resource/Roster/" & objRoster.Id
+    objPost = {Employee:0} # clear the employee
+    res = deputy_rest({url:strUrlStart , method:"POST" , post: objPost})
+    log({message : "Clearing roster" , obj: res})
+    strPrintOutput = strPrintOutput & strCRLF & "Clearing out existing roster for #{objRoster.EmployeeObject.DisplayName}"
+
+
+dt = dateprint({format:"Y-m-d H:0:0", input: intNowTs , timezone: strTZ})
+intStartStartTime = dateprint({format:"U", input: dt , timezone: strTZ})
+
+    
+for objEmp in arrMyColleauge
+  continue if objEmp.FirstName is "Annie"  # Annie is not working
+  continue if objEmp.FirstName is "Darren"  # Darren is not working
+  strUrlStart = "supervise/roster"
+  objPost = {intRosterEmployee:objEmp.EmpId ,  intStartTimestamp: intStartStartTime , intEndTimestamp: intStartStartTime + 8*3600 , blnPublish: 1 , intMealbreakMinute: 0 , intOpunitId : intOpUnit }
+  res = deputy_rest({url:strUrlStart , method:"POST" , post: objPost})
+  log({message : "Creating roster roster" , obj: res})
+  strPrintOutput = strPrintOutput & strCRLF & "Creating new roster for #{objEmp.DisplayName}"
+
+
+  
+# reset all previous days timesheets
+`<db_fetch system="Timesheet" assign="objTimesheetArray">
+  <db_condition>
+   <db_compare column="Discarded" function="ns"></db_compare>
+   <db_compare column="IsInProgress" function="ns"></db_compare>
+   <db_compare column="Date" function="ge"><atom var="str3DaysAgoYMD"/></db_compare>
+ </db_condition>
+ <db_join objname="EmployeeObject"/>
+</db_fetch>`
+  
+arrPayload = []
+arrPayload.PayRuleApproved = 0
+arrPayload.TimeApproved = 0
+
+log({message : "Yesterday's timesheet" , obj: objTimesheetArray})
+
+
+for objTimesheet in objTimesheetArray
+  strUrlUnapprove = "resource/Timesheet/" & objTimesheet.Id
+  res = deputy_rest({url:strUrlUnapprove , method:"POST" , post: arrPayload})
+  log({message : "Unapproving timesheets" , obj: res})
+  strPrintOutput = strPrintOutput & strCRLF & "Unapproving timesheet for #{objTimesheet.EmployeeObject.DisplayName}"
+
+# create timesheets if there was none
+for objEmp in arrMyColleauge
+  strUrlSave = "supervise/timesheet/update"
+  objPost = {intEmployeeId:objEmp.EmpId ,  strDate: strYesterdayYMD , intStartTimeHour: 9 , intStartTimeMinute: 0 , intEndTimeHour: 17 , intEndTimeMinute: 0 , intMealbreakMinute: 30 , intOpunitId : intOpUnit , strComment: "Created by automatation script" }
+  res = deputy_rest({url:strUrlSave , method:"POST" , post: objPost})
+  log({message : "Creating yesterday's timesheet" , obj: res})
+  strPrintOutput = strPrintOutput & strCRLF & "Creating timesheet for #{objEmp.DisplayName} on #{strYesterdayYMD}"
+  
+  
+  
+log({message:"Ran response #{strPrintOutput}"}) 
+  
+return strPrintOutput
