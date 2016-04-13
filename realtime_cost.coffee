@@ -62,6 +62,7 @@ for timesheet in tss
 </db_fetch>`    
 
 for sale in sales
+  continue if !index_exists({var:sale, index:"EmployeeObject"})
   name = sale.EmployeeObject.DisplayName
   if index_exists({var:empRate , index:name})
     empRate[name].sales = empRate[name].sales + sale.SalesAmount
